@@ -1,0 +1,6 @@
+@DotNetVisualizer.Web_HostAddress = http://localhost:5215
+
+GET {{DotNetVisualizer.Web_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
