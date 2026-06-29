@@ -1,0 +1,26 @@
+# --- IDE and System files ---
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.DS_Store
+Thumbs.db
+
+# --- .NET / Build Artifacts ---
+[Bb]in/
+[Oo]bj/
+*.exe
+*.pdb
+*.dll
+
+# --- Frontend Dependency Cache ---
+node_modules/
+.pnpm-store/
+.yarn/
+
+# --- Local Logs & Environment ---
+*.log
+.env
+.env.local
