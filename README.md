@@ -21,7 +21,7 @@ Most profilers require you to load the assembly into a running environment, whic
 ---
 
 ## How to use it
-1.  **Clone the repo:** `git clone https://github.com/aizaz-hash/assembly-profiler`
+1.  **Clone the repo:** `git clone https://github.com/aizaz-hash/Dotnet-Visualizer-Web`
 2.  **Fire it up:** Just run `dotnet run`.
 3.  **Explore:** Upload your `.dll`, pick a class, and start digging into the dependencies.
 
