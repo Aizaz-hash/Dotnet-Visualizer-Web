@@ -448,15 +448,15 @@
             <div class="legend-title">🔑 Map Directory Legend</div>
             <div class="legend-item" id="legendClassItem">
                 <div class="legend-shape shape-class"></div>
-                <span>Class Assembly Node</span>
+                <span>Class</span>
             </div>
             <div class="legend-item" id="legendInterfaceItem">
                 <div class="legend-shape shape-interface"></div>
-                <span>Interface Contract Node</span>
+                <span>Interface</span>
             </div>
             <div class="legend-item" id="legendMethodItem" style="display:none;">
                 <div class="legend-shape shape-method"></div>
-                <span>Method Invoker Executable</span>
+                <span>Method</span>
             </div>
         </div>
         <div id="mynetwork"></div>
@@ -661,30 +661,22 @@
                     id: n.id, label: n.name, shape: n.type === 'Interface' ? 'ellipse' : 'box',
                     color: n.type === 'Interface' ? '#e3f2fd' : '#fff3e0'
                 }));
+
+                // --- UPDATED EDGES CONFIGURATION FOR EXTRA SPACING ---
                 edges = rawAssemblyData.inheritance.edges.filter(e => connectedNodes.has(e.from) && connectedNodes.has(e.to)).map(e => ({
-                    from: e.from, to: e.to, arrows: 'to', label: e.relation
+                    from: e.from,
+                    to: e.to,
+                    arrows: 'to',
+                    label: e.relation,
+                    length: 220, // Forces the connected nodes further apart (Default is ~100)
+                    font: {
+                        align: 'horizontal', // Keeps text aligned along the line path nicely
+                        vadjust: -12,       // Shifts the text vertically off the line so it doesn't overlap
+                        size: 11,
+                        color: '#495057'
+                    }
                 }));
             }
-            //else if (currentViewMode === 'methods') {
-            //    const relevantMethods = new Set();
-            //    if (currentSelectedMethod) {
-            //        relevantMethods.add(currentSelectedMethod);
-            //        rawAssemblyData.methodGraph.edges.forEach(e => {
-            //            if (e.from === currentSelectedMethod || e.to === currentSelectedMethod) {
-            //                relevantMethods.add(e.from); relevantMethods.add(e.to);
-            //            }
-            //        });
-            //    } else {
-            //        rawAssemblyData.methodGraph.nodes.filter(m => m.parentClass === currentSelectedClass).forEach(m => relevantMethods.add(m.id));
-            //    }
-
-            //    nodes = rawAssemblyData.methodGraph.nodes.filter(n => relevantMethods.has(n.id)).map(n => ({
-            //        id: n.id, label: n.name, shape: 'box', color: '#e8f5e9'
-            //    }));
-            //    edges = rawAssemblyData.methodGraph.edges.filter(e => relevantMethods.has(e.from) && relevantMethods.has(e.to)).map(e => ({
-            //        from: e.from, to: e.to, arrows: 'to'
-            //    }));
-            //}
 
             else if (currentViewMode === 'methods') {
                 const relevantMethods = new Set();
@@ -753,7 +745,8 @@
                     .map(e => ({
                         from: e.from,
                         to: e.to,
-                        arrows: 'to'
+                        arrows: 'to',
+                        length: 220,
                     }));
             }
 

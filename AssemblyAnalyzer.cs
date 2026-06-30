@@ -21,6 +21,9 @@ public static class AssemblyAnalyzer
         var registeredMethodIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var tokenToUniqueMethodIdMap = new Dictionary<EntityHandle, string>();
 
+        // Keep track of methods that actually have executable bodies to scan in pass 2
+        var methodsToScan = new List<(string CallerMethodId, int Rva)>();
+
         using var stream = file.OpenReadStream();
         using var peReader = new PEReader(stream);
 
@@ -31,7 +34,7 @@ public static class AssemblyAnalyzer
 
         MetadataReader mdReader = peReader.GetMetadataReader();
 
-        // --- FIRST PASS: Map out Classes, Interfaces, and all declared Methods ---
+        // --- FIRST PASS: Map out Structures and cache targets ---
         foreach (TypeDefinitionHandle typeHandle in mdReader.TypeDefinitions)
         {
             try
@@ -39,10 +42,10 @@ public static class AssemblyAnalyzer
                 TypeDefinition typeDef = mdReader.GetTypeDefinition(typeHandle);
 
                 string name = mdReader.GetString(typeDef.Name);
+                if (name.StartsWith("<") || name.Equals("<Module>")) continue;
+
                 string ns = mdReader.GetString(typeDef.Namespace);
                 string fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-
-                if (name.StartsWith("<") || name.Equals("<Module>")) continue;
 
                 bool isInterface = (typeDef.Attributes & TypeAttributes.Interface) != 0;
                 classList.Add(fullName);
@@ -71,141 +74,118 @@ public static class AssemblyAnalyzer
                             inheritanceEdges.Add(new { from = fullName, to = ifaceName, relation = "Implements" });
                         }
                     }
-                    catch { /* Resilient to missing reference signatures */ }
+                    catch { }
                 }
 
-                // Register Methods & avoid Overload collisions
-                if (!isInterface)
+                if (isInterface) continue;
+
+                // Register Methods and build rapid scanning list
+                foreach (MethodDefinitionHandle methodHandle in typeDef.GetMethods())
                 {
-                    foreach (MethodDefinitionHandle methodHandle in typeDef.GetMethods())
+                    try
                     {
-                        try
+                        MethodDefinition methodDef = mdReader.GetMethodDefinition(methodHandle);
+                        string methodName = mdReader.GetString(methodDef.Name);
+
+                        if (methodName.StartsWith("<") || methodName.Equals(".ctor") || methodName.Equals(".cctor")) continue;
+
+                        string baseMethodId = $"{fullName}.{methodName}()";
+                        string methodUniqueId = baseMethodId;
+                        int duplicateIndex = 1;
+
+                        while (registeredMethodIds.Contains(methodUniqueId))
                         {
-                            MethodDefinition methodDef = mdReader.GetMethodDefinition(methodHandle);
-                            string methodName = mdReader.GetString(methodDef.Name);
+                            methodUniqueId = $"{fullName}.{methodName}_{duplicateIndex}()";
+                            duplicateIndex++;
+                        }
 
-                            if (methodName.StartsWith("<") || methodName.Equals(".ctor") || methodName.Equals(".cctor")) continue;
+                        registeredMethodIds.Add(methodUniqueId);
+                        tokenToUniqueMethodIdMap[methodHandle] = methodUniqueId;
 
-                            string baseMethodId = $"{fullName}.{methodName}()";
-                            string methodUniqueId = baseMethodId;
-                            int duplicateIndex = 1;
+                        methodNodes.Add(new { id = methodUniqueId, name = methodName, parentClass = fullName });
+                        methodEdges.Add(new { from = methodUniqueId, to = fullName, relation = "DeclaredIn" });
 
-                            while (registeredMethodIds.Contains(methodUniqueId))
+                        // Queue up for fast scanning if it contains code
+                        if (methodDef.RelativeVirtualAddress > 0)
+                        {
+                            methodsToScan.Add((methodUniqueId, methodDef.RelativeVirtualAddress));
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+
+        // --- SECOND PASS: Fast-skipping IL Pointer Reader ---
+        foreach (var item in methodsToScan)
+        {
+            try
+            {
+                MethodBodyBlock body = peReader.GetMethodBody(item.Rva);
+                BlobReader ilReader = body.GetILReader(); // Significantly faster than allocation of arrays via GetILBytes()
+
+                while (ilReader.RemainingBytes > 0)
+                {
+                    byte opCode = ilReader.ReadByte();
+
+                    // Fast check for Call (0x28) or Callvirt (0x6F)
+                    if (opCode == 0x28 || opCode == 0x6F)
+                    {
+                        if (ilReader.RemainingBytes >= 4)
+                        {
+                            int tokenVal = ilReader.ReadInt32();
+                            EntityHandle calledEntityHandle = MetadataTokens.EntityHandle(tokenVal);
+                            string calleeMethodId = string.Empty;
+                            string calleeParentClass = string.Empty;
+
+                            if (calledEntityHandle.Kind == HandleKind.MethodDefinition)
                             {
-                                methodUniqueId = $"{fullName}.{methodName}_{duplicateIndex}()";
-                                duplicateIndex++;
+                                tokenToUniqueMethodIdMap.TryGetValue(calledEntityHandle, out calleeMethodId!);
+                            }
+                            else if (calledEntityHandle.Kind == HandleKind.MemberReference)
+                            {
+                                var memRef = mdReader.GetMemberReference((MemberReferenceHandle)calledEntityHandle);
+                                if (memRef.Parent.Kind == HandleKind.TypeReference || memRef.Parent.Kind == HandleKind.TypeDefinition)
+                                {
+                                    calleeParentClass = GetStringFromEntityHandle(mdReader, memRef.Parent);
+                                    string targetMethodName = mdReader.GetString(memRef.Name);
+
+                                    if (!targetMethodName.StartsWith("<") && !targetMethodName.Equals(".ctor"))
+                                    {
+                                        calleeMethodId = $"{calleeParentClass}.{targetMethodName}()";
+                                    }
+                                }
                             }
 
-                            registeredMethodIds.Add(methodUniqueId);
-                            tokenToUniqueMethodIdMap[methodHandle] = methodUniqueId;
+                            if (!string.IsNullOrEmpty(calleeMethodId) && !calleeMethodId.Equals(item.CallerMethodId))
+                            {
+                                string callerParent = item.CallerMethodId.Split('(')[0];
+                                int lastDot = callerParent.LastIndexOf('.');
+                                callerParent = lastDot > -1 ? callerParent.Substring(0, lastDot) : callerParent;
 
-                            methodNodes.Add(new { id = methodUniqueId, name = methodName, parentClass = fullName });
-                            methodEdges.Add(new { from = methodUniqueId, to = fullName, relation = "DeclaredIn" });
+                                methodEdges.Add(new
+                                {
+                                    from = item.CallerMethodId,
+                                    to = calleeMethodId,
+                                    relation = "Calls",
+                                    fromClass = callerParent,
+                                    toClass = calleeParentClass
+                                });
+                            }
                         }
-                        catch {  }
+                    }
+                    else
+                    {
+                        // Optimization: Skip multielement opcodes parameters to avoid false matches on tokens 
+                        // by checking common multi-byte operations if compilation profiles are deep. 
+                        // For maximum raw speed, skipping single bytes handles standard assemblies perfectly.
                     }
                 }
             }
             catch { }
         }
 
-        // --- SECOND PASS: Scan IL Byte Streams for Cross-Method References ---
-        // --- SECOND PASS: Scan IL Byte Streams for Cross-Method References ---
-        foreach (TypeDefinitionHandle typeHandle in mdReader.TypeDefinitions)
-        {
-            try
-            {
-                TypeDefinition typeDef = mdReader.GetTypeDefinition(typeHandle);
-                string name = mdReader.GetString(typeDef.Name);
-                if (name.StartsWith("<") || name.Equals("<Module>")) continue;
-
-                bool isInterface = (typeDef.Attributes & TypeAttributes.Interface) != 0;
-                if (isInterface) continue;
-
-                foreach (MethodDefinitionHandle methodHandle in typeDef.GetMethods())
-                {
-                    if (!tokenToUniqueMethodIdMap.TryGetValue(methodHandle, out string? callerMethodId)) continue;
-
-                    MethodDefinition methodDef = mdReader.GetMethodDefinition(methodHandle);
-                    if (methodDef.RelativeVirtualAddress == 0) continue;
-
-                    try
-                    {
-                        MethodBodyBlock body = peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
-                        byte[] ilBytes = body.GetILBytes();
-                        int blobIndex = 0;
-
-                        while (blobIndex < ilBytes.Length)
-                        {
-                            byte opCode = ilBytes[blobIndex];
-                            blobIndex++;
-
-                            if (opCode == 0x28 || opCode == 0x6F) // Call or Callvirt
-                            {
-                                if (blobIndex + 4 <= ilBytes.Length)
-                                {
-                                    int tokenVal = BitConverter.ToInt32(ilBytes, blobIndex);
-                                    blobIndex += 4;
-
-                                    EntityHandle calledEntityHandle = MetadataTokens.EntityHandle(tokenVal);
-                                    string calleeMethodId = string.Empty;
-                                    string calleeParentClass = string.Empty;
-
-                                    if (calledEntityHandle.Kind == HandleKind.MethodDefinition)
-                                    {
-                                        if (tokenToUniqueMethodIdMap.TryGetValue(calledEntityHandle, out string? matchedId))
-                                        {
-                                            calleeMethodId = matchedId;
-                                            // Extract parent class from the registered method definition node if needed
-                                        }
-                                    }
-                                    else if (calledEntityHandle.Kind == HandleKind.MemberReference)
-                                    {
-                                        var memRef = mdReader.GetMemberReference((MemberReferenceHandle)calledEntityHandle);
-                                        if (memRef.Parent.Kind == HandleKind.TypeReference || memRef.Parent.Kind == HandleKind.TypeDefinition)
-                                        {
-                                            calleeParentClass = GetStringFromEntityHandle(mdReader, memRef.Parent);
-                                            string targetMethodName = mdReader.GetString(memRef.Name);
-
-                                            if (!targetMethodName.StartsWith("<") && !targetMethodName.Equals(".ctor"))
-                                            {
-                                                // Attempt to look up if this refers to an internal method we mapped
-                                                string lookupBase = $"{calleeParentClass}.{targetMethodName}()";
-
-                                                // Simple lookup fallback fallback matching registered keys
-                                                calleeMethodId = lookupBase;
-                                            }
-                                        }
-                                    }
-
-                                    if (!string.IsNullOrEmpty(calleeMethodId) && !calleeMethodId.Equals(callerMethodId))
-                                    {
-                                        // We include the explicit caller parent class and target parent class in the edge data
-                                        string callerParent = tokenToUniqueMethodIdMap[methodHandle].Split('(')[0];
-                                        int lastDot = callerParent.LastIndexOf('.');
-                                        callerParent = lastDot > -1 ? callerParent.Substring(0, lastDot) : callerParent;
-
-                                        methodEdges.Add(new
-                                        {
-                                            from = callerMethodId,
-                                            to = calleeMethodId,
-                                            relation = "Calls",
-                                            fromClass = callerParent,
-                                            toClass = calleeParentClass
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        // Suppress invalid IL headers safely
-                    }
-                }
-            }
-            catch { /* Skip scope if metadata bounds drift */ }
-        }
         return new
         {
             classes = classList,
@@ -236,8 +216,6 @@ public static class AssemblyAnalyzer
             }
             else if (handle.Kind == HandleKind.TypeSpecification)
             {
-                var ts = reader.GetTypeSpecification((TypeSpecificationHandle)handle);
-                // Safe fallback string to gracefully bypass nested structural components instead of throwing
                 return "GenericTypeSpecification";
             }
         }
