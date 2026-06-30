@@ -458,22 +458,22 @@
             </div>
 
             <div class="graph-legend" id="mainLegend">
-                <div class="legend-title">🔑 Map Directory Legend</div>
+                <div class="legend-title">Map Directory Legend</div>
                 <div class="legend-item" id="legendClassItem">
                     <div class="legend-shape shape-class"></div>
-                    <span>Class Assembly Node</span>
+                    <span>Class</span>
                 </div>
                 <div class="legend-item" id="legendInterfaceItem">
                     <div class="legend-shape shape-interface"></div>
-                    <span>Interface Contract Node</span>
+                    <span>Interface</span>
                 </div>
                 <div class="legend-item" id="legendMethodItem" style="display:none;">
                     <div class="legend-shape shape-method"></div>
-                    <span>Method Invoker Executable</span>
+                    <span>Method</span>
                 </div>
                 <div class="legend-item" id="legendDeadlockItem" style="display:none;">
                     <div class="legend-shape shape-deadlock"></div>
-                    <span>Circular Thread Lock</span>
+                    <span>Circular Dependency</span>
                 </div>
             </div>
             <div id="mynetwork"></div>
@@ -832,7 +832,7 @@
                         damping: 0.4,
                         avoidOverlap: 1.0
                     },
-                    stabilization: { iterations: 150, updateInterval: 25 }
+                    //stabilization: { iterations: 150, updateInterval: 25 }
                 }
             };
 
