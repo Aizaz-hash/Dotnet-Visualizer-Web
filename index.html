@@ -43,7 +43,6 @@
             align-items: center;
         }
 
-        /* Custom File Upload Button */
         .file-upload-wrapper {
             position: relative;
             display: inline-block;
@@ -76,7 +75,6 @@
             cursor: pointer;
         }
 
-        /* Custom Dropdown Styling */
         .custom-dropdown {
             position: relative;
             display: inline-block;
@@ -139,7 +137,6 @@
             max-height: 320px;
         }
 
-        /* Dynamic Folders & Lists */
         .folder-group {
             margin-bottom: 2px;
         }
@@ -195,16 +192,6 @@
                 color: white;
             }
 
-        .suggestion-section-title {
-            padding: 6px 12px;
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            color: #6c757d;
-            font-weight: bold;
-            background: #f8f9fa;
-        }
-
-        /* Navigation Tab Links */
         .view-tabs {
             display: flex;
             background: #343a40;
@@ -236,7 +223,6 @@
                 font-weight: 600;
             }
 
-        /* Alert Notifications */
         #msgWindow {
             padding: 10px 20px;
             font-size: 0.9rem;
@@ -286,7 +272,6 @@
             left: 0;
         }
 
-        /* --- Global Architectural Full-Screen Loader Glass Pane --- */
         #canvasLoaderOverlay {
             position: absolute;
             top: 0;
@@ -301,7 +286,6 @@
             justify-content: center;
             gap: 16px;
             backdrop-filter: blur(2px);
-            transition: opacity 0.2s ease-in-out;
         }
 
         .spinner-wheel {
@@ -317,7 +301,6 @@
             font-size: 0.95rem;
             font-weight: 500;
             color: #495057;
-            font-family: inherit;
         }
 
         @keyframes spinAnimation {
@@ -330,7 +313,6 @@
             }
         }
 
-        /* Legend Overlays */
         .graph-legend {
             position: absolute;
             top: 20px;
@@ -400,15 +382,10 @@
             gap: 20px;
         }
 
-        footer a {
-            color: #ffffff;
-            text-decoration: none;
-            transition: color 0.2s;
-        }
-
-        footer a:hover {
-            color: #007bff;
-        }
+            footer a {
+                color: #ffffff;
+                text-decoration: none;
+            }
     </style>
 </head>
 <body>
@@ -422,7 +399,7 @@
                     <input type="file" id="dllFile" accept=".dll" />
                 </div>
 
-                <div class="custom-dropdown">
+                <div class="custom-dropdown" id="classDropdownWrapper">
                     <div id="dropdownTrigger" class="dropdown-trigger disabled">
                         <span id="triggerText">-- Select Target Type --</span>
                         <span>▼</span>
@@ -447,7 +424,6 @@
                         <div id="methodTreeContent" class="tree-content"></div>
                     </div>
                 </div>
-
             </div>
         </div>
     </header>
@@ -468,7 +444,7 @@
             <div id="loaderStatusText">Parsing pipeline structures...</div>
         </div>
 
-        <div class="graph-legend">
+        <div class="graph-legend" id="mainLegend">
             <div class="legend-title">🔑 Map Directory Legend</div>
             <div class="legend-item" id="legendClassItem">
                 <div class="legend-shape shape-class"></div>
@@ -487,14 +463,8 @@
     </div>
 
     <footer>
-        <div>
-            <span>GitHub:</span>
-            <a href="https://github.com/aizaz-hash" target="_blank">aizaz-hash</a>
-        </div>
-        <div>
-            <span>Email:</span>
-            <a href="mailto:send2aizaz@gmail.com?subject=Assembly%20Architecture%20Profiler%3F">send2aizaz@gmail.com</a>
-        </div>
+        <div><span>GitHub:</span> <a href="https://github.com/aizaz-hash" target="_blank">aizaz-hash</a></div>
+        <div><span>Email:</span> <a href="mailto:send2aizaz@gmail.com">send2aizaz@gmail.com</a></div>
     </footer>
 
     <script>
@@ -509,10 +479,11 @@
         function showLoader(statusText) {
             const loader = document.getElementById('canvasLoaderOverlay');
             const txt = document.getElementById('loaderStatusText');
-            if (loader && txt) {
-                txt.textContent = statusText;
-                loader.style.display = 'flex';
-            }
+            if (loader && txt) { txt.textContent = statusText; loader.style.display = 'flex'; }
+        }
+
+        function toggleFolder(headerElement) {
+            headerElement.parentElement.classList.toggle('collapsed');
         }
 
         function hideLoader() {
@@ -525,28 +496,20 @@
             const txt = document.getElementById('msgText');
             if (!win || !txt) return;
             if (messageTimeout) clearTimeout(messageTimeout);
-
             win.className = '';
             win.classList.add(type === 'error' ? 'msg-error' : (type === 'success' ? 'msg-success' : 'msg-info'));
             win.style.display = 'flex';
             txt.textContent = text;
-
-            if (type !== 'error') {
-                messageTimeout = setTimeout(() => { closeMessage(); }, 5000);
-            }
+            if (type !== 'error') { messageTimeout = setTimeout(closeMessage, 5000); }
         }
 
         function closeMessage() {
             const win = document.getElementById('msgWindow');
             if (win) win.style.display = 'none';
-            if (messageTimeout) clearTimeout(messageTimeout);
         }
 
         function clearCanvas() {
-            if (networkInstance !== null) {
-                networkInstance.destroy();
-                networkInstance = null;
-            }
+            if (networkInstance !== null) { networkInstance.destroy(); networkInstance = null; }
         }
 
         function switchViewMode(mode) {
@@ -554,22 +517,22 @@
             document.getElementById('tabInheritance').classList.toggle('active', mode === 'inheritance');
             document.getElementById('tabMethods').classList.toggle('active', mode === 'methods');
 
+            const classWrapper = document.getElementById('classDropdownWrapper');
             const methodWrapper = document.getElementById('methodDropdownWrapper');
-            document.getElementById('legendMethodItem').style.display = mode === 'methods' ? 'flex' : 'none';
+            const legendMethodItem = document.getElementById('legendMethodItem');
 
             if (mode === 'methods') {
+                classWrapper.style.display = 'inline-block';
                 methodWrapper.style.display = 'inline-block';
-                if (currentSelectedClass) {
-                    populateMethodsDropdown();
-                }
+                legendMethodItem.style.display = 'flex';
+                if (currentSelectedClass) populateMethodsDropdown();
+                renderGraphMap();
             } else {
+                classWrapper.style.display = 'inline-block';
                 methodWrapper.style.display = 'none';
+                legendMethodItem.style.display = 'none';
                 renderGraphMap();
             }
-        }
-
-        function toggleFolder(headerElement) {
-            headerElement.parentElement.classList.toggle('collapsed');
         }
 
         function selectClassItem(fullName, shortName) {
@@ -581,9 +544,8 @@
 
             if (currentViewMode === 'methods') {
                 populateMethodsDropdown();
-            } else {
-                renderGraphMap();
             }
+            renderGraphMap();
         }
 
         function selectMethodItem(methodId, methodName) {
@@ -600,24 +562,18 @@
 
             container.innerHTML = "";
             const query = filterText.toLowerCase().trim();
-
             const methods = rawAssemblyData.methodGraph.nodes.filter(m => m.parentClass === currentSelectedClass);
 
             if (methods.length === 0) {
-                container.innerHTML = `<div style="padding:12px; color:#6c757d; text-align:center;">No methods found for this type.</div>`;
+                container.innerHTML = `<div style="padding:12px; color:#6c757d; text-align:center;">No executable methods found.</div>`;
                 trigger.classList.add('disabled');
                 return;
             }
 
             trigger.classList.remove('disabled');
-            const filteredMethods = methods.filter(m => m.name.toLowerCase().includes(query));
+            const filtered = methods.filter(m => m.name.toLowerCase().includes(query));
 
-            if (filteredMethods.length === 0) {
-                container.innerHTML = `<div style="padding:12px; color:#6c757d; text-align:center;">No method matches found.</div>`;
-                return;
-            }
-
-            filteredMethods.sort((a, b) => a.name.localeCompare(b.name)).forEach(method => {
+            filtered.sort((a, b) => a.name.localeCompare(b.name)).forEach(method => {
                 const div = document.createElement('div');
                 div.className = 'method-item';
                 div.innerHTML = `<strong>${method.name}()</strong>`;
@@ -645,14 +601,9 @@
                 });
 
                 if (suggestions.length === 0) {
-                    treeContent.innerHTML = `<div style="padding:12px; color:#6c757d; text-align:center;">No type matches found.</div>`;
+                    treeContent.innerHTML = `<div style="padding:12px; color:#6c757d; text-align:center;">No structural matches found.</div>`;
                     return;
                 }
-
-                const heading = document.createElement('div');
-                heading.className = 'suggestion-section-title';
-                heading.textContent = `Matching Suggestion Lists (${suggestions.length})`;
-                treeContent.appendChild(heading);
 
                 suggestions.slice(0, 30).forEach(item => {
                     const div = document.createElement('div');
@@ -666,249 +617,134 @@
 
             sortedNamespaces.forEach(ns => {
                 const items = originalGroups[ns];
-                const folderGroup = document.createElement('div');
-                folderGroup.className = 'folder-group collapsed';
-
-                const folderHeader = document.createElement('div');
-                folderHeader.className = 'folder-header';
-                folderHeader.innerHTML = `<span class="folder-toggle-icon">▼</span> 📂 ${ns} (${items.length})`;
-                folderHeader.onclick = () => toggleFolder(folderHeader);
-
-                const childrenContainer = document.createElement('div');
-                childrenContainer.className = 'folder-children';
-
-                items.sort((a, b) => a.shortName.localeCompare(b.shortName)).forEach(item => {
-                    const classDiv = document.createElement('div');
-                    classDiv.className = 'class-item';
-                    classDiv.innerHTML = `<strong>${item.shortName}</strong>`;
-                    classDiv.onclick = () => selectClassItem(item.fullName, item.shortName);
-                    childrenContainer.appendChild(classDiv);
+                const group = document.createElement('div');
+                // Nodes default to standard CSS collapsed structures on execution
+                group.className = 'folder-group collapsed';
+                group.innerHTML = `
+                        <div class="folder-header" onclick="toggleFolder(this)">
+                            <span class="folder-toggle-icon">▼</span>
+                            <span>${ns || '(Global Namespace)'}</span>
+                        </div>
+                        <div class="folder-children"></div>
+                    `;
+                const childrenContainer = group.querySelector('.folder-children');
+                items.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'class-item';
+                    div.textContent = item.shortName;
+                    div.onclick = () => selectClassItem(item.fullName, item.shortName);
+                    childrenContainer.appendChild(div);
                 });
-
-                folderGroup.appendChild(folderHeader);
-                folderGroup.appendChild(childrenContainer);
-                treeContent.appendChild(folderGroup);
+                treeContent.appendChild(group);
             });
         }
 
         function renderGraphMap() {
-            if (!currentSelectedClass) return;
             clearCanvas();
+            const container = document.getElementById('mynetwork');
+            if (!currentSelectedClass) {
+                container.innerHTML = `<div style="padding:40px;text-align:center;color:#6c757d;">Please choose a Target Type from the directory stream above.</div>`;
+                return;
+            }
 
-            // Trigger structural stabilization spin loop
-            showLoader("Assembling architecture physics layout...");
-
-            let visNodes = [];
-            let visEdges = [];
+            let nodes = [], edges = [];
 
             if (currentViewMode === 'inheritance') {
-                const srcNodes = rawAssemblyData.inheritance.nodes;
-                const srcEdges = rawAssemblyData.inheritance.edges;
-
-                const targetNode = srcNodes.find(n => n.id === currentSelectedClass);
-                if (targetNode) visNodes.push(targetNode);
-
-                const matchingEdges = srcEdges.filter(e => e.from === currentSelectedClass || e.to === currentSelectedClass);
-                matchingEdges.forEach(edge => {
-                    visEdges.push({ from: edge.from, to: edge.to, label: edge.relation });
-                    const counterpartId = edge.from === currentSelectedClass ? edge.to : edge.from;
-                    const counterpartNode = srcNodes.find(n => n.id === counterpartId);
-                    if (counterpartNode && !visNodes.some(n => n.id === counterpartId)) {
-                        visNodes.push(counterpartNode);
+                const connectedNodes = new Set([currentSelectedClass]);
+                rawAssemblyData.inheritance.edges.forEach(e => {
+                    if (e.from === currentSelectedClass || e.to === currentSelectedClass) {
+                        connectedNodes.add(e.from); connectedNodes.add(e.to);
                     }
                 });
-            } else {
-                if (!currentSelectedMethod) {
-                    hideLoader();
-                    showMessage("Please select a target method from the dropdown menu.", "info");
-                    return;
-                }
 
-                const methodNodes = rawAssemblyData.methodGraph.nodes;
-                const methodEdges = rawAssemblyData.methodGraph.edges;
-
-                const targetMethodMeta = methodNodes.find(m => m.id === currentSelectedMethod);
-                if (!targetMethodMeta) { hideLoader(); return; }
-
-                visNodes.push({ id: targetMethodMeta.id, name: `${targetMethodMeta.name}()`, type: 'Method', isCenter: true });
-                visNodes.push({ id: currentSelectedClass, name: currentSelectedClass.split('.').pop(), type: 'Class' });
-                visEdges.push({ from: targetMethodMeta.id, to: currentSelectedClass, label: 'DeclaredIn' });
-
-                methodEdges.forEach(edge => {
-                    if (edge.relation !== "Calls") return;
-
-                    let connectedMethodId = null;
-                    if (edge.to === currentSelectedMethod) {
-                        connectedMethodId = edge.from;
-                    } else if (edge.from === currentSelectedMethod) {
-                        connectedMethodId = edge.to;
-                    }
-
-                    if (connectedMethodId) {
-                        visEdges.push({ from: edge.from, to: edge.to, label: 'Calls' });
-
-                        if (!visNodes.some(n => n.id === connectedMethodId)) {
-                            const extMethodMeta = methodNodes.find(m => m.id === connectedMethodId);
-                            if (extMethodMeta) {
-                                visNodes.push({ id: extMethodMeta.id, name: `${extMethodMeta.name}()`, type: 'Method' });
-
-                                const parentClassId = extMethodMeta.parentClass;
-                                if (!visNodes.some(n => n.id === parentClassId)) {
-                                    visNodes.push({ id: parentClassId, name: parentClassId.split('.').pop(), type: 'Class' });
-                                }
-                                if (!visEdges.some(e => e.from === extMethodMeta.id && e.to === parentClassId)) {
-                                    visEdges.push({ from: extMethodMeta.id, to: parentClassId, label: 'DeclaredIn' });
-                                }
-                            } else {
-                                visNodes.push({ id: connectedMethodId, name: connectedMethodId.split('.').pop(), type: 'Method' });
-                            }
+                nodes = rawAssemblyData.inheritance.nodes.filter(n => connectedNodes.has(n.id)).map(n => ({
+                    id: n.id, label: n.name, shape: n.type === 'Interface' ? 'ellipse' : 'box',
+                    color: n.type === 'Interface' ? '#e3f2fd' : '#fff3e0'
+                }));
+                edges = rawAssemblyData.inheritance.edges.filter(e => connectedNodes.has(e.from) && connectedNodes.has(e.to)).map(e => ({
+                    from: e.from, to: e.to, arrows: 'to', label: e.relation
+                }));
+            } else if (currentViewMode === 'methods') {
+                const relevantMethods = new Set();
+                if (currentSelectedMethod) {
+                    relevantMethods.add(currentSelectedMethod);
+                    rawAssemblyData.methodGraph.edges.forEach(e => {
+                        if (e.from === currentSelectedMethod || e.to === currentSelectedMethod) {
+                            relevantMethods.add(e.from); relevantMethods.add(e.to);
                         }
-                    }
-                });
-            }
-
-            const nodesDataset = visNodes.map(n => {
-                let shape = 'box';
-                let bg = '#fff3e0', border = '#fb8c00';
-
-                if (n.type === 'Interface') { shape = 'ellipse'; bg = '#e3f2fd'; border = '#1e88e5'; }
-                if (n.type === 'Method') { shape = 'diamond'; bg = '#e8f5e9'; border = '#4caf50'; }
-
-                if (n.isCenter) {
-                    bg = '#a5d6a7'; border = '#1b5e20';
-                } else if (n.id === currentSelectedClass) {
-                    bg = '#ffcc80'; border = '#e65100';
+                    });
+                } else {
+                    rawAssemblyData.methodGraph.nodes.filter(m => m.parentClass === currentSelectedClass).forEach(m => relevantMethods.add(m.id));
                 }
 
-                return {
-                    id: n.id, label: n.name, title: n.id, shape: shape,
-                    color: { background: bg, border: border, highlight: { background: '#d4edda', border: '#28a745' } },
-                    borderWidth: 2, font: { size: 13, face: 'monospace' }
-                };
-            });
-
-            const edgesDataset = visEdges.map(e => ({
-                from: e.from, to: e.to, arrows: 'to', label: e.label,
-                font: { size: 9, align: 'middle', color: '#495057' },
-                color: { color: e.label === 'Calls' ? '#28a745' : '#848d95' },
-                width: e.label === 'Calls' ? 2 : 1
-            }));
-
-            const container = document.getElementById('mynetwork');
-            if (container) {
-                networkInstance = new vis.Network(container, { nodes: nodesDataset, edges: edgesDataset }, {
-                    physics: {
-                        solver: 'forceAtlas2Based',
-                        forceAtlas2Based: { springLength: 160, gravitationalConstant: -40 }
-                    }
-                });
-
-                // Listen to the layout engine's stabilization cycles to know when rendering completes
-                networkInstance.on("stabilizationProgress", function (params) {
-                    showLoader(`Calculating layout node alignment... ${Math.round((params.iterations / params.total) * 100)}%`);
-                });
-
-                networkInstance.on("afterDrawing", function () {
-                    hideLoader();
-                });
-            } else {
-                hideLoader();
+                nodes = rawAssemblyData.methodGraph.nodes.filter(n => relevantMethods.has(n.id)).map(n => ({
+                    id: n.id, label: n.name, shape: 'box', color: '#e8f5e9'
+                }));
+                edges = rawAssemblyData.methodGraph.edges.filter(e => relevantMethods.has(e.from) && relevantMethods.has(e.to)).map(e => ({
+                    from: e.from, to: e.to, arrows: 'to'
+                }));
             }
+
+            networkInstance = new vis.Network(container, { nodes, edges }, {
+                nodes: { font: { face: 'sans-serif' }, margin: 10 },
+                physics: { stabilization: { iterations: 100 } }
+            });
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            const fileInput = document.getElementById('dllFile');
-            const classTrigger = document.getElementById('dropdownTrigger');
-            const classMenu = document.getElementById('dropdownMenu');
-            const searchClass = document.getElementById('searchClass');
+        document.getElementById('dllFile').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
 
-            const methodTrigger = document.getElementById('methodTrigger');
-            const methodMenu = document.getElementById('methodMenu');
-            const searchMethod = document.getElementById('searchMethod');
+            showLoader('Parsing IL Assemblies...');
+            const formData = new FormData();
+            formData.append('file', file);
 
-            if (classTrigger) {
-                classTrigger.addEventListener('click', (e) => {
-                    if (classTrigger.classList.contains('disabled')) return;
-                    classMenu.style.display = classMenu.style.display === 'flex' ? 'none' : 'flex';
-                    methodMenu.style.display = 'none';
-                    if (classMenu.style.display === 'flex' && searchClass) searchClass.focus();
-                    e.stopPropagation();
+            try {
+                const response = await fetch('/api/analyze', { method: 'POST', body: formData });
+                if (!response.ok) throw new Error("Metadata generation failed.");
+                rawAssemblyData = await response.json();
+
+                originalGroups = {};
+                rawAssemblyData.classes.forEach(fullName => {
+                    const parts = fullName.split('.');
+                    const shortName = parts.pop();
+                    const ns = parts.join('.');
+                    if (!originalGroups[ns]) originalGroups[ns] = [];
+                    originalGroups[ns].push({ fullName, shortName });
                 });
+
+                document.getElementById('dropdownTrigger').classList.remove('disabled');
+
+                // Microtask timeout isolates tree population from loader layout drop execution
+                setTimeout(() => {
+                    renderTreeView();
+                    hideLoader();
+                    showMessage('Assembly structures parsed cleanly.', 'success');
+                }, 50);
+
+            } catch (err) {
+                hideLoader();
+                showMessage(err.message, 'error');
             }
-
-            if (methodTrigger) {
-                methodTrigger.addEventListener('click', (e) => {
-                    if (methodTrigger.classList.contains('disabled')) return;
-                    methodMenu.style.display = methodMenu.style.display === 'flex' ? 'none' : 'flex';
-                    classMenu.style.display = 'none';
-                    if (methodMenu.style.display === 'flex' && searchMethod) searchMethod.focus();
-                    e.stopPropagation();
-                });
-            }
-
-            document.addEventListener('click', () => {
-                if (classMenu) classMenu.style.display = 'none';
-                if (methodMenu) methodMenu.style.display = 'none';
-            });
-
-            if (classMenu) classMenu.addEventListener('click', e => e.stopPropagation());
-            if (methodMenu) methodMenu.addEventListener('click', e => e.stopPropagation());
-
-            if (fileInput) {
-                fileInput.addEventListener('change', async (e) => {
-                    const file = e.target.files[0];
-                    if (!file) return;
-
-                    document.getElementById('uploadLabel').textContent = file.name;
-                    closeMessage(); clearCanvas();
-                    document.getElementById('triggerText').textContent = "-- Select Target Type --";
-                    document.getElementById('methodTriggerText').textContent = "-- Select Target Method --";
-                    methodTrigger.classList.add('disabled');
-
-                    showLoader("Streaming binary metadata payload to API endpoint...");
-                    const formData = new FormData();
-                    formData.append('file', file);
-
-                    try {
-                        const res = await fetch('/api/analyze-dll', { method: 'POST', body: formData });
-                        if (!res.ok) {
-                            hideLoader();
-                            showMessage(`Analysis Failure: ${await res.text()}`, "error");
-                            return;
-                        }
-
-                        const data = await res.json();
-                        rawAssemblyData = data;
-
-                        if (!data.classes || data.classes.length === 0) {
-                            hideLoader();
-                            showMessage("Parsing complete. No references matched search criteria.", "info");
-                            return;
-                        }
-
-                        originalGroups = {};
-                        data.classes.forEach(cls => {
-                            const parts = cls.split('.');
-                            const cName = parts.pop();
-                            const ns = parts.join('.') || 'Global Namespace';
-                            if (!originalGroups[ns]) originalGroups[ns] = [];
-                            originalGroups[ns].push({ fullName: cls, shortName: cName });
-                        });
-
-                        renderTreeView();
-                        classTrigger.classList.remove('disabled');
-                        hideLoader();
-                        showMessage(`Success: Loaded assembly profile.`, "success");
-                    } catch (err) {
-                        hideLoader();
-                        showMessage(`Server Communications Failure: ${err.message}`, "error");
-                    }
-                });
-            }
-
-            if (searchClass) searchClass.addEventListener('input', e => renderTreeView(e.target.value));
-            if (searchMethod) searchMethod.addEventListener('input', e => populateMethodsDropdown(e.target.value));
         });
+
+        document.getElementById('searchClass').addEventListener('input', (e) => renderTreeView(e.target.value));
+        document.getElementById('searchMethod').addEventListener('input', (e) => populateMethodsDropdown(e.target.value));
+        document.getElementById('dropdownTrigger').onclick = () => { document.getElementById('dropdownMenu').style.display = 'flex'; };
+        document.getElementById('methodTrigger').onclick = () => { document.getElementById('methodMenu').style.display = 'flex'; };
+
+        // Click wrapper checks isolate sub-tree toggle nodes from closing the main menus
+        window.onclick = function (event) {
+            const classWrapper = document.getElementById('classDropdownWrapper');
+            const methodWrapper = document.getElementById('methodDropdownWrapper');
+
+            if (classWrapper && !classWrapper.contains(event.target)) {
+                document.getElementById('dropdownMenu').style.display = "none";
+            }
+            if (methodWrapper && !methodWrapper.contains(event.target)) {
+                document.getElementById('methodMenu').style.display = "none";
+            }
+        }
     </script>
 </body>
 </html>
