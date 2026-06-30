@@ -664,25 +664,97 @@
                 edges = rawAssemblyData.inheritance.edges.filter(e => connectedNodes.has(e.from) && connectedNodes.has(e.to)).map(e => ({
                     from: e.from, to: e.to, arrows: 'to', label: e.relation
                 }));
-            } else if (currentViewMode === 'methods') {
+            }
+            //else if (currentViewMode === 'methods') {
+            //    const relevantMethods = new Set();
+            //    if (currentSelectedMethod) {
+            //        relevantMethods.add(currentSelectedMethod);
+            //        rawAssemblyData.methodGraph.edges.forEach(e => {
+            //            if (e.from === currentSelectedMethod || e.to === currentSelectedMethod) {
+            //                relevantMethods.add(e.from); relevantMethods.add(e.to);
+            //            }
+            //        });
+            //    } else {
+            //        rawAssemblyData.methodGraph.nodes.filter(m => m.parentClass === currentSelectedClass).forEach(m => relevantMethods.add(m.id));
+            //    }
+
+            //    nodes = rawAssemblyData.methodGraph.nodes.filter(n => relevantMethods.has(n.id)).map(n => ({
+            //        id: n.id, label: n.name, shape: 'box', color: '#e8f5e9'
+            //    }));
+            //    edges = rawAssemblyData.methodGraph.edges.filter(e => relevantMethods.has(e.from) && relevantMethods.has(e.to)).map(e => ({
+            //        from: e.from, to: e.to, arrows: 'to'
+            //    }));
+            //}
+
+            else if (currentViewMode === 'methods') {
                 const relevantMethods = new Set();
+                const methodToClassMap = {};
+
+                // 1. Map all locally declared methods to their parent classes
+                rawAssemblyData.methodGraph.nodes.forEach(n => {
+                    methodToClassMap[n.id] = n.parentClass;
+                });
+
+                // 2. Identify which methods need to be rendered based on selection
                 if (currentSelectedMethod) {
                     relevantMethods.add(currentSelectedMethod);
                     rawAssemblyData.methodGraph.edges.forEach(e => {
                         if (e.from === currentSelectedMethod || e.to === currentSelectedMethod) {
-                            relevantMethods.add(e.from); relevantMethods.add(e.to);
+                            relevantMethods.add(e.from);
+                            relevantMethods.add(e.to);
+                            if (e.fromClass) methodToClassMap[e.from] = e.fromClass;
+                            if (e.toClass) methodToClassMap[e.to] = e.toClass;
                         }
                     });
                 } else {
-                    rawAssemblyData.methodGraph.nodes.filter(m => m.parentClass === currentSelectedClass).forEach(m => relevantMethods.add(m.id));
+                    rawAssemblyData.methodGraph.nodes
+                        .filter(m => m.parentClass === currentSelectedClass)
+                        .forEach(m => relevantMethods.add(m.id));
                 }
 
-                nodes = rawAssemblyData.methodGraph.nodes.filter(n => relevantMethods.has(n.id)).map(n => ({
-                    id: n.id, label: n.name, shape: 'box', color: '#e8f5e9'
-                }));
-                edges = rawAssemblyData.methodGraph.edges.filter(e => relevantMethods.has(e.from) && relevantMethods.has(e.to)).map(e => ({
-                    from: e.from, to: e.to, arrows: 'to'
-                }));
+                // 3. Build the nodes array with distinct Class + Method labels
+                nodes = [];
+                relevantMethods.forEach(id => {
+                    // Try to find local node info first
+                    const localNode = rawAssemblyData.methodGraph.nodes.find(n => n.id === id);
+                    let methodName = localNode ? localNode.name : "";
+                    let fullClassName = methodToClassMap[id] || (localNode ? localNode.parentClass : "");
+
+                    // Fallback string parsing if it's an external/member reference ID (e.g., Namespace.Class.Method())
+                    if (!methodName || !fullClassName) {
+                        const cleanId = id.replace("()", "");
+                        const lastDot = cleanId.lastIndexOf('.');
+                        if (lastDot > -1) {
+                            methodName = cleanId.substring(lastDot + 1);
+                            fullClassName = cleanId.substring(0, lastDot);
+                        } else {
+                            methodName = id;
+                            fullClassName = "Unknown Class";
+                        }
+                    }
+
+                    // Extract just the short class name for clean presentation
+                    const shortClassName = fullClassName.split('.').pop();
+
+                    nodes.push({
+                        id: id,
+                        // Wraps the class name above the method name inside the node box
+                        label: `${shortClassName}\n➔ ${methodName}()`,
+                        shape: 'box',
+                        color: localNode ? '#e8f5e9' : '#f5f5f5', // Tint external references slightly grey
+                        title: `Full Path: ${fullClassName}.${methodName}()`, // Hover tooltip
+                        font: { multi: true, bold: { color: '#212529' } }
+                    });
+                });
+
+                // 4. Map the dependency edges cleanly
+                edges = rawAssemblyData.methodGraph.edges
+                    .filter(e => relevantMethods.has(e.from) && relevantMethods.has(e.to))
+                    .map(e => ({
+                        from: e.from,
+                        to: e.to,
+                        arrows: 'to'
+                    }));
             }
 
             networkInstance = new vis.Network(container, { nodes, edges }, {

@@ -102,13 +102,14 @@ public static class AssemblyAnalyzer
                             methodNodes.Add(new { id = methodUniqueId, name = methodName, parentClass = fullName });
                             methodEdges.Add(new { from = methodUniqueId, to = fullName, relation = "DeclaredIn" });
                         }
-                        catch { /* Skip unparseable specific method definitions safely */ }
+                        catch {  }
                     }
                 }
             }
-            catch { /* Skip corrupted or unparseable type blocks safely */ }
+            catch { }
         }
 
+        // --- SECOND PASS: Scan IL Byte Streams for Cross-Method References ---
         // --- SECOND PASS: Scan IL Byte Streams for Cross-Method References ---
         foreach (TypeDefinitionHandle typeHandle in mdReader.TypeDefinitions)
         {
@@ -130,7 +131,6 @@ public static class AssemblyAnalyzer
 
                     try
                     {
-                        // Wrap exact IL read step to prevent missing method-body bounds from crashing execution
                         MethodBodyBlock body = peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
                         byte[] ilBytes = body.GetILBytes();
                         int blobIndex = 0;
@@ -149,29 +149,50 @@ public static class AssemblyAnalyzer
 
                                     EntityHandle calledEntityHandle = MetadataTokens.EntityHandle(tokenVal);
                                     string calleeMethodId = string.Empty;
+                                    string calleeParentClass = string.Empty;
 
                                     if (calledEntityHandle.Kind == HandleKind.MethodDefinition)
                                     {
-                                        tokenToUniqueMethodIdMap.TryGetValue(calledEntityHandle, out calleeMethodId!);
+                                        if (tokenToUniqueMethodIdMap.TryGetValue(calledEntityHandle, out string? matchedId))
+                                        {
+                                            calleeMethodId = matchedId;
+                                            // Extract parent class from the registered method definition node if needed
+                                        }
                                     }
                                     else if (calledEntityHandle.Kind == HandleKind.MemberReference)
                                     {
                                         var memRef = mdReader.GetMemberReference((MemberReferenceHandle)calledEntityHandle);
                                         if (memRef.Parent.Kind == HandleKind.TypeReference || memRef.Parent.Kind == HandleKind.TypeDefinition)
                                         {
-                                            string parentType = GetStringFromEntityHandle(mdReader, memRef.Parent);
+                                            calleeParentClass = GetStringFromEntityHandle(mdReader, memRef.Parent);
                                             string targetMethodName = mdReader.GetString(memRef.Name);
 
                                             if (!targetMethodName.StartsWith("<") && !targetMethodName.Equals(".ctor"))
                                             {
-                                                calleeMethodId = $"{parentType}.{targetMethodName}()";
+                                                // Attempt to look up if this refers to an internal method we mapped
+                                                string lookupBase = $"{calleeParentClass}.{targetMethodName}()";
+
+                                                // Simple lookup fallback fallback matching registered keys
+                                                calleeMethodId = lookupBase;
                                             }
                                         }
                                     }
 
                                     if (!string.IsNullOrEmpty(calleeMethodId) && !calleeMethodId.Equals(callerMethodId))
                                     {
-                                        methodEdges.Add(new { from = callerMethodId, to = calleeMethodId, relation = "Calls" });
+                                        // We include the explicit caller parent class and target parent class in the edge data
+                                        string callerParent = tokenToUniqueMethodIdMap[methodHandle].Split('(')[0];
+                                        int lastDot = callerParent.LastIndexOf('.');
+                                        callerParent = lastDot > -1 ? callerParent.Substring(0, lastDot) : callerParent;
+
+                                        methodEdges.Add(new
+                                        {
+                                            from = callerMethodId,
+                                            to = calleeMethodId,
+                                            relation = "Calls",
+                                            fromClass = callerParent,
+                                            toClass = calleeParentClass
+                                        });
                                     }
                                 }
                             }
@@ -179,13 +200,12 @@ public static class AssemblyAnalyzer
                     }
                     catch
                     {
-                        // Suppress invalid IL headers, structural alignment drift, or obfuscation blocks safely
+                        // Suppress invalid IL headers safely
                     }
                 }
             }
-            catch { /* Skip specific IL scope if metadata bounds drift */ }
+            catch { /* Skip scope if metadata bounds drift */ }
         }
-
         return new
         {
             classes = classList,
