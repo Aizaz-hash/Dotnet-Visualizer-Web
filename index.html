@@ -370,6 +370,12 @@
             border-radius: 6px;
         }
 
+        .shape-deadlock {
+            background-color: #ffebeb;
+            border-color: #dc3545;
+            border-radius: 3px;
+        }
+
         footer {
             background: #212529;
             color: #adb5bd;
@@ -429,46 +435,54 @@
     </header>
 
     <div class="view-tabs">
-        <button class="tab-btn active" id="tabInheritance" onclick="switchViewMode('inheritance')">⛓️ Type Inheritance View</button>
-        <button class="tab-btn" id="tabMethods" onclick="switchViewMode('methods')">⚡ Method Call Dependency View</button>
-    </div>
-
-    <div id="msgWindow">
-        <span id="msgText"></span>
-        <button onclick="closeMessage()">&times;</button>
-    </div>
-
-    <div id="network-container">
-        <div id="canvasLoaderOverlay">
-            <div class="spinner-wheel"></div>
-            <div id="loaderStatusText">Parsing pipeline structures...</div>
-        </div>
-
-        <div class="graph-legend" id="mainLegend">
-            <div class="legend-title">🔑 Map Directory Legend</div>
-            <div class="legend-item" id="legendClassItem">
-                <div class="legend-shape shape-class"></div>
-                <span>Class</span>
-            </div>
-            <div class="legend-item" id="legendInterfaceItem">
-                <div class="legend-shape shape-interface"></div>
-                <span>Interface</span>
-            </div>
-            <div class="legend-item" id="legendMethodItem" style="display:none;">
-                <div class="legend-shape shape-method"></div>
-                <span>Method</span>
-            </div>
-        </div>
-        <div id="mynetwork"></div>
-    </div>
-    <div id="msgWindow">
-        <span id="msgText"></span>
-        <button onclick="closeMessage()">&times;</button>
+        <button class="tab-btn active" id="tabInheritance" onclick="switchViewMode('inheritance')">Inheritance View</button>
+        <button class="tab-btn" id="tabMethods" onclick="switchViewMode('methods')">Method Call View</button>
+        <button class="tab-btn" id="tabDeadlocks" onclick="switchViewMode('deadlocks')">Circular Dependency View(<span id="deadlockCount">0</span>)</button>
     </div>
 
     <div id="obfuscationNotice" style="background: #fff3cd; color: #856404; border-bottom: 1px solid #ffeeba; padding: 8px 20px; font-size: 0.8rem; display: flex; align-items: center; gap: 8px;">
         <span>⚠️</span>
         <strong>Note:</strong> Structure and method call graph generation is only optimized for unobfuscated assemblies or basic (first-level) obfuscated metadata. Deeply packed or control-flow flattened binaries are currently unsupported.
+    </div>
+
+    <div id="msgWindow">
+        <span id="msgText"></span>
+        <button onclick="closeMessage()">&times;</button>
+    </div>
+
+    <div style="display: flex; flex-direction: row; flex: 1; height: calc(100vh - 150px); position: relative; overflow: hidden;">
+        <div id="network-container" style="flex: 1; height: 100%; background: #fafafa; position: relative;">
+            <div id="canvasLoaderOverlay">
+                <div class="spinner-wheel"></div>
+                <div id="loaderStatusText">Parsing pipeline structures...</div>
+            </div>
+
+            <div class="graph-legend" id="mainLegend">
+                <div class="legend-title">🔑 Map Directory Legend</div>
+                <div class="legend-item" id="legendClassItem">
+                    <div class="legend-shape shape-class"></div>
+                    <span>Class Assembly Node</span>
+                </div>
+                <div class="legend-item" id="legendInterfaceItem">
+                    <div class="legend-shape shape-interface"></div>
+                    <span>Interface Contract Node</span>
+                </div>
+                <div class="legend-item" id="legendMethodItem" style="display:none;">
+                    <div class="legend-shape shape-method"></div>
+                    <span>Method Invoker Executable</span>
+                </div>
+                <div class="legend-item" id="legendDeadlockItem" style="display:none;">
+                    <div class="legend-shape shape-deadlock"></div>
+                    <span>Circular Thread Lock</span>
+                </div>
+            </div>
+            <div id="mynetwork"></div>
+        </div>
+        <div id="deadlocksSidePanel" style="width: 320px; min-width: 320px; height: 100%; border-left: 1px solid #dee2e6; background: #ffffff; display: none; flex-direction: column; padding: 15px; overflow-y: auto; box-sizing: border-box; z-index: 5;">
+            <h3 style="margin-top: 0; color: #dc3545; font-size: 1.1rem; border-bottom: 2px solid #dc3545; padding-bottom: 8px;">Detected Cycles</h3>
+            <p style="font-size: 0.85rem; color: #6c757d;">Select a circular chain below to display its call structure isolating the loop chain:</p>
+            <div id="deadlockList" style="display: flex; flex-direction: column; gap: 10px;"></div>
+        </div>
     </div>
 
     <footer>
@@ -477,10 +491,11 @@
     </footer>
 
     <script>
-        let rawAssemblyData = { classes: [], inheritance: { nodes: [], edges: [] }, methodGraph: { nodes: [], edges: [] } };
+        let rawAssemblyData = { classes: [], inheritance: { nodes: [], edges: [] }, methodGraph: { nodes: [], edges: [] }, deadlocks: [] };
         let currentViewMode = 'inheritance';
         let currentSelectedClass = null;
         let currentSelectedMethod = null;
+        let currentSelectedDeadlockIndex = null;
         let networkInstance = null;
         let originalGroups = {};
         let messageTimeout = null;
@@ -525,23 +540,36 @@
             currentViewMode = mode;
             document.getElementById('tabInheritance').classList.toggle('active', mode === 'inheritance');
             document.getElementById('tabMethods').classList.toggle('active', mode === 'methods');
+            document.getElementById('tabDeadlocks').classList.toggle('active', mode === 'deadlocks');
 
             const classWrapper = document.getElementById('classDropdownWrapper');
             const methodWrapper = document.getElementById('methodDropdownWrapper');
             const legendMethodItem = document.getElementById('legendMethodItem');
+            const legendDeadlockItem = document.getElementById('legendDeadlockItem');
+            const deadlocksPanel = document.getElementById('deadlocksSidePanel');
 
             if (mode === 'methods') {
                 classWrapper.style.display = 'inline-block';
                 methodWrapper.style.display = 'inline-block';
                 legendMethodItem.style.display = 'flex';
+                legendDeadlockItem.style.display = 'none';
+                deadlocksPanel.style.display = 'none';
                 if (currentSelectedClass) populateMethodsDropdown();
-                renderGraphMap();
+            } else if (mode === 'deadlocks') {
+                classWrapper.style.display = 'none';
+                methodWrapper.style.display = 'none';
+                legendMethodItem.style.display = 'none';
+                legendDeadlockItem.style.display = 'flex';
+                deadlocksPanel.style.display = 'flex';
             } else {
                 classWrapper.style.display = 'inline-block';
                 methodWrapper.style.display = 'none';
                 legendMethodItem.style.display = 'none';
-                renderGraphMap();
+                legendDeadlockItem.style.display = 'none';
+                deadlocksPanel.style.display = 'none';
             }
+            renderGraphMap();
+
         }
 
         function selectClassItem(fullName, shortName) {
@@ -627,15 +655,14 @@
             sortedNamespaces.forEach(ns => {
                 const items = originalGroups[ns];
                 const group = document.createElement('div');
-                // Nodes default to standard CSS collapsed structures on execution
                 group.className = 'folder-group collapsed';
                 group.innerHTML = `
-                            <div class="folder-header" onclick="toggleFolder(this)">
-                                <span class="folder-toggle-icon">▼</span>
-                                <span>${ns || '(Global Namespace)'}</span>
-                            </div>
-                            <div class="folder-children"></div>
-                        `;
+                        <div class="folder-header" onclick="toggleFolder(this)">
+                            <span class="folder-toggle-icon">▼</span>
+                            <span>${ns || '(Global Namespace)'}</span>
+                        </div>
+                        <div class="folder-children"></div>
+                    `;
                 const childrenContainer = group.querySelector('.folder-children');
                 items.forEach(item => {
                     const div = document.createElement('div');
@@ -651,7 +678,8 @@
         function renderGraphMap() {
             clearCanvas();
             const container = document.getElementById('mynetwork');
-            if (!currentSelectedClass) {
+
+            if (currentViewMode !== 'deadlocks' && !currentSelectedClass) {
                 container.innerHTML = `<div style="padding:40px;text-align:center;color:#6c757d;">Please choose a Target Type from the directory stream above.</div>`;
                 return;
             }
@@ -670,58 +698,42 @@
                     id: n.id, label: n.name, shape: n.type === 'Interface' ? 'ellipse' : 'box',
                     color: n.type === 'Interface' ? '#e3f2fd' : '#fff3e0'
                 }));
-
-                // --- UPDATED EDGES CONFIGURATION FOR EXTRA SPACING ---
+                
                 edges = rawAssemblyData.inheritance.edges.filter(e => connectedNodes.has(e.from) && connectedNodes.has(e.to)).map(e => ({
-                    from: e.from,
-                    to: e.to,
-                    arrows: 'to',
+                    from: e.from, 
+                    to: e.to, 
+                    arrows: 'to', 
                     label: e.relation,
-                    length: 220, // Forces the connected nodes further apart (Default is ~100)
-                    font: {
-                        align: 'horizontal', // Keeps text aligned along the line path nicely
-                        vadjust: -12,       // Shifts the text vertically off the line so it doesn't overlap
-                        size: 11,
-                        color: '#495057'
-                    }
+                    length: 220,
+                    font: { align: 'horizontal', vadjust: -12, size: 11, color: '#495057' }
                 }));
-            }
 
-            else if (currentViewMode === 'methods') {
+            } else if (currentViewMode === 'methods') {
                 const relevantMethods = new Set();
                 const methodToClassMap = {};
 
-                // 1. Map all locally declared methods to their parent classes
                 rawAssemblyData.methodGraph.nodes.forEach(n => {
                     methodToClassMap[n.id] = n.parentClass;
                 });
 
-                // 2. Identify which methods need to be rendered based on selection
                 if (currentSelectedMethod) {
                     relevantMethods.add(currentSelectedMethod);
                     rawAssemblyData.methodGraph.edges.forEach(e => {
                         if (e.from === currentSelectedMethod || e.to === currentSelectedMethod) {
-                            relevantMethods.add(e.from);
-                            relevantMethods.add(e.to);
+                            relevantMethods.add(e.from); relevantMethods.add(e.to);
                             if (e.fromClass) methodToClassMap[e.from] = e.fromClass;
                             if (e.toClass) methodToClassMap[e.to] = e.toClass;
                         }
                     });
                 } else {
-                    rawAssemblyData.methodGraph.nodes
-                        .filter(m => m.parentClass === currentSelectedClass)
-                        .forEach(m => relevantMethods.add(m.id));
+                    rawAssemblyData.methodGraph.nodes.filter(m => m.parentClass === currentSelectedClass).forEach(m => relevantMethods.add(m.id));
                 }
 
-                // 3. Build the nodes array with distinct Class + Method labels
-                nodes = [];
                 relevantMethods.forEach(id => {
-                    // Try to find local node info first
                     const localNode = rawAssemblyData.methodGraph.nodes.find(n => n.id === id);
                     let methodName = localNode ? localNode.name : "";
                     let fullClassName = methodToClassMap[id] || (localNode ? localNode.parentClass : "");
 
-                    // Fallback string parsing if it's an external/member reference ID (e.g., Namespace.Class.Method())
                     if (!methodName || !fullClassName) {
                         const cleanId = id.replace("()", "");
                         const lastDot = cleanId.lastIndexOf('.');
@@ -734,35 +746,97 @@
                         }
                     }
 
-                    // Extract just the short class name for clean presentation
                     const shortClassName = fullClassName.split('.').pop();
 
                     nodes.push({
-                        id: id,
-                        // Wraps the class name above the method name inside the node box
-                        label: `${shortClassName}\n➔ ${methodName}()`,
-                        shape: 'box',
-                        color: localNode ? '#e8f5e9' : '#f5f5f5', // Tint external references slightly grey
-                        title: `Full Path: ${fullClassName}.${methodName}()`, // Hover tooltip
+                        id: id, 
+                        label: `${shortClassName}\n➔ ${methodName}()`, 
+                        shape: 'box', 
+                        color: localNode ? '#e8f5e9' : '#f5f5f5',
+                        title: `Full Path: ${fullClassName}.${methodName}()`,
                         font: { multi: true, bold: { color: '#212529' } }
                     });
                 });
 
-                // 4. Map the dependency edges cleanly
-                edges = rawAssemblyData.methodGraph.edges
-                    .filter(e => relevantMethods.has(e.from) && relevantMethods.has(e.to))
-                    .map(e => ({
-                        from: e.from,
-                        to: e.to,
+                edges = rawAssemblyData.methodGraph.edges.filter(e => relevantMethods.has(e.from) && relevantMethods.has(e.to)).map(e => ({
+                    from: e.from, to: e.to, arrows: 'to'
+                }));
+
+            } else if (currentViewMode === 'deadlocks') {
+                if (currentSelectedDeadlockIndex === null) {
+                    container.innerHTML = `<div style="padding:40px;text-align:center;color:#6c757d;">Please select a detected deadlock cycle path trace option from the sidebar directory.</div>`;
+                    return;
+                }
+
+                const activeCyclePath = rawAssemblyData.deadlocks[currentSelectedDeadlockIndex];
+                const nodesInCycle = new Set(activeCyclePath);
+
+                nodesInCycle.forEach(id => {
+                    const localNode = rawAssemblyData.methodGraph.nodes.find(n => n.id === id);
+                    let methodName = localNode ? localNode.name : "";
+                    let fullClassName = localNode ? localNode.parentClass : "";
+
+                    if (!methodName) {
+                        const cleanId = id.replace("()", "");
+                        const lastDot = cleanId.lastIndexOf('.');
+                        methodName = lastDot > -1 ? cleanId.substring(lastDot + 1) : id;
+                        fullClassName = lastDot > -1 ? cleanId.substring(0, lastDot) : "External Reference";
+                    }
+
+                    const shortClassName = fullClassName.split('.').pop();
+
+                    nodes.push({
+                        id: id,
+                        label: `${shortClassName}\n➔ ${methodName}()`,
+                        shape: 'box',
+                        borderWidth: 2,
+                        color: {
+                            background: '#ffebeb',
+                            border: '#dc3545',
+                            highlight: { background: '#ffcdd2', border: '#b71c1c' }
+                        },
+                        font: { multi: true, color: '#721c24' },
+                        title: `Deadlock Component: ${fullClassName}.${methodName}()`
+                    });
+                });
+
+                for (let i = 0; i < activeCyclePath.length - 1; i++) {
+                    edges.push({
+                        from: activeCyclePath[i],
+                        to: activeCyclePath[i + 1],
                         arrows: 'to',
-                        length: 220,
-                    }));
+                        color: { color: '#dc3545', highlight: '#b71c1c' },
+                        width: 3,
+                        label: 'causes lock',
+                        font: { color: '#b71c1c', size: 10, vadjust: -10 }
+                    });
+                }
             }
 
-            networkInstance = new vis.Network(container, { nodes, edges }, {
-                nodes: { font: { face: 'sans-serif' }, margin: 10 },
-                physics: { stabilization: { iterations: 100 } }
-            });
+            const options = {
+                nodes: {
+                    font: { face: 'sans-serif', multi: true },
+                    margin: 12
+                },
+                edges: {
+                    selectionWidth: 2,
+                    font: { size: 11 }
+                },
+                physics: {
+                    solver: 'forceAtlas2Based',
+                    forceAtlas2Based: {
+                        gravitationalConstant: -80,
+                        centralGravity: 0.01,
+                        springLength: currentViewMode === 'methods' ? 180 : 120,
+                        springConstant: 0.08,
+                        damping: 0.4,
+                        avoidOverlap: 1.0
+                    },
+                    stabilization: { iterations: 150, updateInterval: 25 }
+                }
+            };
+
+            networkInstance = new vis.Network(container, { nodes, edges }, options);
         }
 
         document.getElementById('dllFile').addEventListener('change', async (e) => {
@@ -778,6 +852,36 @@
                 if (!response.ok) throw new Error("Metadata generation failed.");
                 rawAssemblyData = await response.json();
 
+                // Hydrate Deadlocks Dashboard list trace
+                const deadlocksFound = rawAssemblyData.deadlocks || [];
+                document.getElementById('deadlockCount').innerText = deadlocksFound.length;
+
+                const deadlockContainer = document.getElementById('deadlockList');
+                deadlockContainer.innerHTML = '';
+                currentSelectedDeadlockIndex = null;
+
+                if (deadlocksFound.length === 0) {
+                    deadlockContainer.innerHTML = '<div style="color: #28a745; font-size:0.85rem; font-weight:bold; padding: 10px; background: #e2f0d9; border-radius:4px;">✓ No deadlocks or circular recursion paths detected!</div>';
+                } else {
+                    deadlocksFound.forEach((cycle, index) => {
+                        const btn = document.createElement('button');
+                        btn.style = "text-align: left; padding: 10px; background: #fff5f5; border: 1px solid #feb2b2; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-family: monospace; transition: all 0.2s; width: 100%; box-sizing: border-box;";
+                        
+                        const originNode = cycle[0].split('.').pop();
+                        const targetNode = cycle[cycle.length - 2].split('.').pop();
+                        
+                        btn.innerHTML = `<b style="color: #c53030;">[Loop #${index + 1}]</b> <br/> ${originNode} ➔ ... ➔ ${targetNode}`;
+                        
+                        btn.onclick = () => {
+                            Array.from(deadlockContainer.children).forEach(child => child.style.background = '#fff5f5');
+                            btn.style.background = '#fed7d7';
+                            currentSelectedDeadlockIndex = index;
+                            renderGraphMap();
+                        };
+                        deadlockContainer.appendChild(btn);
+                    });
+                }
+
                 originalGroups = {};
                 rawAssemblyData.classes.forEach(fullName => {
                     const parts = fullName.split('.');
@@ -789,7 +893,6 @@
 
                 document.getElementById('dropdownTrigger').classList.remove('disabled');
 
-                // Microtask timeout isolates tree population from loader layout drop execution
                 setTimeout(() => {
                     renderTreeView();
                     hideLoader();
@@ -807,7 +910,6 @@
         document.getElementById('dropdownTrigger').onclick = () => { document.getElementById('dropdownMenu').style.display = 'flex'; };
         document.getElementById('methodTrigger').onclick = () => { document.getElementById('methodMenu').style.display = 'flex'; };
 
-        // Click wrapper checks isolate sub-tree toggle nodes from closing the main menus
         window.onclick = function (event) {
             const classWrapper = document.getElementById('classDropdownWrapper');
             const methodWrapper = document.getElementById('methodDropdownWrapper');

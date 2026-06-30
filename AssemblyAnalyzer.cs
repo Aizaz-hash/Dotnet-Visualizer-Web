@@ -186,12 +186,42 @@ public static class AssemblyAnalyzer
             catch { }
         }
 
+        var methodAdjacencyList = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        // Populate adjacency dictionary using your scanned calls data
+        foreach (dynamic edge in methodEdges)
+        {
+            // Filter out architectural structural data, we only evaluate actual functional invocations
+            if (edge.relation == "Calls")
+            {
+                string fromNode = edge.from;
+                string toNode = edge.to;
+
+                if (!methodAdjacencyList.ContainsKey(fromNode))
+                    methodAdjacencyList[fromNode] = new List<string>();
+
+                methodAdjacencyList[fromNode].Add(toNode);
+            }
+        }
+
+        // Run the 3-Color Detector
+        List<List<string>> detectedDeadlocks = DeadlockDetector.DetectCycles(methodAdjacencyList);
+
+        // Return combined payload seamlessly back to your Minimal API controller
         return new
         {
             classes = classList,
             inheritance = new { nodes = inheritanceNodes, edges = inheritanceEdges },
-            methodGraph = new { nodes = methodNodes, edges = methodEdges }
+            methodGraph = new { nodes = methodNodes, edges = methodEdges },
+            deadlocks = detectedDeadlocks // This will serialize directly into JSON for your UI!
         };
+
+        //return new
+        //{
+        //    classes = classList,
+        //    inheritance = new { nodes = inheritanceNodes, edges = inheritanceEdges },
+        //    methodGraph = new { nodes = methodNodes, edges = methodEdges }
+        //};
     }
 
     private static string GetStringFromEntityHandle(MetadataReader reader, EntityHandle handle)
