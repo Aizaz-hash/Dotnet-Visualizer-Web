@@ -461,6 +461,15 @@
         </div>
         <div id="mynetwork"></div>
     </div>
+    <div id="msgWindow">
+        <span id="msgText"></span>
+        <button onclick="closeMessage()">&times;</button>
+    </div>
+
+    <div id="obfuscationNotice" style="background: #fff3cd; color: #856404; border-bottom: 1px solid #ffeeba; padding: 8px 20px; font-size: 0.8rem; display: flex; align-items: center; gap: 8px;">
+        <span>⚠️</span>
+        <strong>Note:</strong> Structure and method call graph generation is only optimized for unobfuscated assemblies or basic (first-level) obfuscated metadata. Deeply packed or control-flow flattened binaries are currently unsupported.
+    </div>
 
     <footer>
         <div><span>GitHub:</span> <a href="https://github.com/aizaz-hash" target="_blank">aizaz-hash</a></div>
@@ -621,12 +630,12 @@
                 // Nodes default to standard CSS collapsed structures on execution
                 group.className = 'folder-group collapsed';
                 group.innerHTML = `
-                        <div class="folder-header" onclick="toggleFolder(this)">
-                            <span class="folder-toggle-icon">▼</span>
-                            <span>${ns || '(Global Namespace)'}</span>
-                        </div>
-                        <div class="folder-children"></div>
-                    `;
+                            <div class="folder-header" onclick="toggleFolder(this)">
+                                <span class="folder-toggle-icon">▼</span>
+                                <span>${ns || '(Global Namespace)'}</span>
+                            </div>
+                            <div class="folder-children"></div>
+                        `;
                 const childrenContainer = group.querySelector('.folder-children');
                 items.forEach(item => {
                     const div = document.createElement('div');
